@@ -40,39 +40,20 @@ class spacecraftModelPoints(object):
         print 'Number of Components: ' + str(len(self.CADstructure))
         print 'Number of Facets: ' + str(len(self.CADstructure[0]['facets']))
 
-        #Extract all Vertices
-        #ASSUMES ONLY 1 SOLID
-        self.allVertices = list()
-        for i in np.arange(len(self.CADstructure[0]['facets'])):
-            if i%50 == 0:#DOWNSELECT NUMBER OF POINTS
-                tmpVertices = self.CADstructure[0]['facets'][i]['vertices']
-                for K in tmpVertices:
-                    self.allVertices.append(np.asarray(K))
-        #We now have a stack of all vertices in one list
+        self.extractAllVertices()#Extract All Vertices from self.CADstructure
 
-        #Extract all X, Y, Z
-        self.X = list()
-        self.Y = list()
-        self.Z = list()
-        for i in self.allVertices:
-            self.X.append(i[0])
-            self.Y.append(i[1])
-            self.Z.append(i[2])
+        self.extractAllXYZ(self.allVertices)#Extrace self.X,.Y,.Z
+
+        self.centerXYZ()#Center self.X,.Y,.Z about the means
 
         #Center and Normalize all X,Y,Z
-        meanX = np.mean(self.X)
-        meanY = np.mean(self.Y)
-        meanZ = np.mean(self.Z)
-        self.X -= meanX
-        self.Y -= meanY
-        self.Z -= meanZ
-        rangeX = np.max(self.X) - np.min(self.X)
-        rangeY = np.max(self.Y) - np.min(self.Y)
-        rangeZ = np.max(self.Z) - np.min(self.Z)
-        maxRange = np.max([rangeX,rangeY,rangeZ])
-        self.X = self.X/maxRange
-        self.Y = self.Y/maxRange
-        self.Z = self.Z/maxRange
+        self.normalizeXYZ()
+        
+        #Reject All points that are outside 2sigma the mean
+        self.rejectOutliersXYZ()
+
+        #Recenter XYZ
+        self.centerXYZ()
 
         #REDEFINE ALL VERTICES to have normalized points
         self.allVertices = list()
@@ -81,7 +62,7 @@ class spacecraftModelPoints(object):
             self.allVertices.append(arr)
 
         #### Pick 100 random points
-        n = 100
+        n = 200
         rndpts = random.sample(range(1, len(self.allVertices)), n)
         distances = list()
         meanDist = list()
@@ -106,68 +87,95 @@ class spacecraftModelPoints(object):
         print 'Done Picking Reference Distance'
         ################################################
 
-        ####
-        Rk = 0.5*meanDist[indOfMinMean]#+1.*stdDist[indOfMinMean]#arbitrarily try Rk as meanDist
+        #### Filter Out Clustered Points By Removing Nearest based on mean ###########
+        #Produced decent image: i%5, 0.5*meanDist[indOfMinMean]
+        self.meanDist = meanDist[indOfMinMean]
+        self.stdDist = stdDist[indOfMinMean]
+        Rk = 0.05*meanDist[indOfMinMean]#-1.*stdDist[indOfMinMean]#arbitrarily try Rk as meanDist
         pInds = np.arange(len(self.allVertices)).tolist()# An Array of All Indices
         #Pick Random pInd From pInds
         PVInds = [random.sample(pInds,1)[0]]#Add first point to PVInds, these are the indices of points to keep
         sampleInds = [ind for ind in pInds if ind not in PVInds]#All points in pInds and not in PVInds
         #Start Loop
-        while len(pInds) > 0:#len(PVInds):#While at least 1 pInds is not in PVInds
+        while len(pInds) > 1:#len(PVInds):#While at least 1 pInds is not in PVInds
             #Randomly pick one ind not in Picked Inds but still in pInds for testing
             testingInd = random.sample(sampleInds,1)[0]
             for ind in pInds:#Iterate over all Inds
-                # if ind == testingInd:#Skip if current ind is the testing ind
-                #     continue
-                # else:
-                dist = np.linalg.norm(self.allVertices[ind]-self.allVertices[testingInd])
-                if dist < Rk:#If distance between points is less than reference distance
-                    pInds.remove(ind)#delete point from pInds
-                    #sampleInds.remove(ind)#delete point from sampleInds
-                    print "dist: %f, Rk: %f" %(dist,Rk)
-                    break
+                if ind == testingInd:#Skip if current ind is the testing ind
+                    pInds.remove(testingInd)
+                    sampleInds.remove(testingInd)#delete point from sampleInds
+                    continue
+                else:
+                    dist = np.linalg.norm(self.allVertices[ind]-self.allVertices[testingInd])
+                    if dist < Rk:#If distance between points is less than reference distance
+                        #pInds.remove(ind)#delete point from pInds
+                        try:
+                            pInds.remove(testingInd)
+                            sampleInds.remove(testingInd)#delete point from sampleInds
+                        except:
+                            pass
+                        #sampleInds.remove(ind)#delete point from sampleInds
+                        print "dist: %f, Rk: %f" %(dist,Rk)
+                        break
             else:
                 #No Break Occured in For Loop So Add to PVInds
                 PVInds.append(testingInd)
-                sampleInds.remove(testingInd)#delete point from sampleInds
+                try:
+                    sampleInds.remove(testingInd)#delete point from sampleInds
+                except:
+                    pass
                 print 'Appending to PVInds'
             print "len(pInds):%d, len(PVInds):%d" %(len(pInds),len(PVInds))
         #Setup All Points
         self.pts = list()
         for ptInd in PVInds:
             self.pts.append(self.allVertices[ptInd])
+        #################################################
 
-        #Re-Extract all X, Y, Z
+        self.extractAllXYZ(self.pts)#Re-extract All XYZ
+        self.calcMeansAndRanges()#Calculate Means and Ranges of Points
+
+        self.PVInds = PVInds
+        self.pInds = pInds
+        #### END INIT #########################
+
+    def extractAllVertices(self):
+        #ASSUMES ONLY 1 SOLID
+        self.allVertices = list()
+        for i in np.arange(len(self.CADstructure[0]['facets'])):
+            if i%5 == 0:#DOWNSELECT NUMBER OF POINTS
+                tmpVertices = self.CADstructure[0]['facets'][i]['vertices']
+                for K in tmpVertices:
+                    self.allVertices.append(np.asarray(K))
+        #We now have a stack of all vertices in one list
+
+    def extractAllXYZ(self,vertices):
         self.X = list()
         self.Y = list()
         self.Z = list()
-        for i in self.pts:
+        for i in vertices:
             self.X.append(i[0])
             self.Y.append(i[1])
             self.Z.append(i[2])
 
-        self.PVInds = PVInds
-        self.pInds = pInds
-        ####
+    def centerXYZ(self):
+        meanX = np.mean(self.X)
+        meanY = np.mean(self.Y)
+        meanZ = np.mean(self.Z)
+        self.X -= meanX
+        self.Y -= meanY
+        self.Z -= meanZ
 
-        # #Setup All Points
-        # self.pts = list()
-        # self.pts.append(np.asarray([self.X[0],self.Y[0],self.Z[0]]))
-        # cnt = 0
-        # for (tx, ty, tz) in zip(self.X, self.Y, self.Z):
-        #     arr = np.asarray([tx,ty,tz])
-        #     distPT = list()
-        #     for ind in np.arange(len(self.pts)):
-        #         distPT.append(np.linalg.norm(np.asarray(self.pts[ind])-arr))
-        #     TMPmeanDist = np.mean(distPT)
-        #     if TMPmeanDist > meanDist[indOfMinMean]+1.*stdDist[indOfMinMean]:#The mean calcualted for pt is less than other pts
-        #         self.pts.append(arr)
-        #     cnt += 1
-        #     print "Pt Num: %d of %d, numpts: %d, TMPmeanDist: %f, meanDist: %f, stdDist: %f" %(cnt,len(self.X),len(self.pts),TMPmeanDist,meanDist[indOfMinMean],stdDist[indOfMinMean])
-        # #self.pts = np.asarray(self.pts)      
+    def normalizeXYZ(self):#Normalize X,Y,Z by largest range Axis
+        rangeX = np.max(self.X) - np.min(self.X)
+        rangeY = np.max(self.Y) - np.min(self.Y)
+        rangeZ = np.max(self.Z) - np.min(self.Z)
+        maxRange = np.max([rangeX,rangeY,rangeZ])
+        self.X = self.X/maxRange
+        self.Y = self.Y/maxRange
+        self.Z = self.Z/maxRange
 
-
-        #Calculate Means and Ranges of Points
+    def calcMeansAndRanges(self):
         self.meanX = np.mean(self.X)
         self.meanY = np.mean(self.Y)
         self.meanZ = np.mean(self.Z)
@@ -175,6 +183,24 @@ class spacecraftModelPoints(object):
         self.rangeY = np.max(self.Y) - np.min(self.Y)
         self.rangeZ = np.max(self.Z) - np.min(self.Z)
         self.maxRange = np.max([self.rangeX,self.rangeY,self.rangeZ])
+
+    def rejectOutliersXYZ(self):
+        rejectindsX = self.rejectOutliers3(self.X)#Find X inds to Filter
+        rejectindsY = self.rejectOutliers3(self.Y)#Find Y inds to Filter
+        rejectindsZ = self.rejectOutliers3(self.Z)#Find Z inds to Filter
+        rejectInds = np.concatenate((rejectindsX,rejectindsY,rejectindsZ))
+        inds = [ind for ind in np.arange(len(self.X)) if not ind in rejectInds]
+        self.X = self.X[inds]
+        self.Y = self.Y[inds]
+        self.Z = self.Z[inds]
+
+    def rejectOutliers3(self,data):
+        mean = np.mean(data)
+        std = np.std(data)
+        inds = np.concatenate((np.where(data>2*np.std(data)+np.mean(data))[0],\
+         np.where(data<-2*np.std(data)+np.mean(data))[0]))
+        return inds
+
 
 def isFloat(string):
     try:
@@ -188,24 +214,50 @@ if __name__ == '__main__':
     fname = 'cassiniSTLFROM3DBUILDER3ascii.STL'
     scMDLpts = spacecraftModelPoints(fname)
     
+    #### Plot Raw Model #########################
+    fig1 = plt.figure()
+    ax1 = fig1.gca(projection='3d')
+    Xtmp = list()
+    Ytmp = list()
+    Ztmp = list()
+    for i in scMDLpts.allVertices:
+        Xtmp.append(i[0])
+        Ytmp.append(i[1])
+        Ztmp.append(i[2])
+    ax1.scatter(Xtmp,Ytmp,Ztmp, c='k',marker='o',s=1)
+    plt.show(block=False)
+    #############################################
+
+    #### Plot Filtered Model ###################
     fig = plt.figure()
     ax= fig.gca(projection='3d')
     #ax = fig.add_subplot(111, projection='3d')
-
-
     ax.scatter(scMDLpts.X,scMDLpts.Y,scMDLpts.Z, c='k', marker='o', s=1)
-    show(block=False)
+    #############################################
 
-    #### Minimize Central Axis ######################
+    #### PLOT bounding box to square up everything ############
+    Xmax = max(scMDLpts.X)
+    Xmin = min(scMDLpts.X)
+    Ymax = max(scMDLpts.Y)
+    Ymin = min(scMDLpts.Y)
+    Zmax = max(scMDLpts.Z)
+    Zmin = min(scMDLpts.Z)
+    max_range = np.array([Xmax-Xmin,Ymax-Ymin,Zmax-Zmin]).max()
+    Xb = 0.5*max_range*np.mgrid[-1:2:2,-1:2:2,-1:2:2][0].flatten() + 0.5*(Xmax+Xmin)
+    Yb = 0.5*max_range*np.mgrid[-1:2:2,-1:2:2,-1:2:2][1].flatten() + 0.5*(Ymax+Ymin)
+    Zb = 0.5*max_range*np.mgrid[-1:2:2,-1:2:2,-1:2:2][2].flatten() + 0.5*(Zmax+Zmin)
+    for xb, yb, zb in zip(Xb,Yb,Zb):
+        ax.plot([xb],[yb],[zb], 'w')
+    show(block=False)
+    ###########################################################
+
+    #### Minimize Central Axis ################################
     def erf(w0,scMDLpts):
         pos = np.asarray(w0[3:6])
         bhat = np.asarray(w0[0:3])/np.linalg.norm(np.asarray(w0[0:3]))
         error = 0.
-        #for i in np.arange(len(scMDLpts.pts)):
-        #    error += np.linalg.norm(scMDLpts.pts[i]-dot(scMDLpts.pts[i],bhat)*bhat + pos)**2.
         tmpPTS = scMDLpts.pts-pos
-        error = np.sum(np.linalg.norm(tmpPTS - outer(np.einsum('ij,j',tmpPTS,bhat),bhat),axis=1)**2.)
-        #np.einsum('ij,j',tmp,tmp[0])    
+        error = np.sum(np.linalg.norm(tmpPTS - outer(np.einsum('ij,j',tmpPTS,bhat),bhat),axis=1)**2.)  
         return error
 
     def fibonacci_sphere(samples=1,randomize=True):
@@ -240,31 +292,13 @@ if __name__ == '__main__':
     indMin = np.argmin(initERF)
 
     w0[0:3] = [points[indMin][0],points[indMin][1],points[indMin][2]]
-    #w0 = [np.sqrt(2.)/2.,0.,np.sqrt(2.)/2.,scMDLpts.meanX,scMDLpts.meanY,scMDLpts.meanZ]
-    
-    #pos0 = [meanX,meanY,meanZ]
-    #WORKS#out = fmin(erf,w0,args=(scMDLpts,),xtol=1e-3,ftol=1e-3,full_output=True)
     from scipy.optimize import minimize
-    # from scipy.optimize import LinearConstraint
-    # linear_constraint = LinearConstraint(\
-    #     [[1.,1.,1.,0.,0.,0.],\
-    #     [1.,1.,1.,0.,0.,0.],\
-    #     [1.,1.,1.,0.,0.,0.],\
-    #     [0.,0.,0.,1.,0.,0.],\
-    #     [0.,0.,0.,0.,1.,0.],\
-    #     [0.,0.,0.,0.,0.,1.]],\
-    #     [1., 1., 1.,-np.inf, -np.inf, -np.inf],\
-    #     [1., 1., 1., np.inf, np.inf, np.inf])
-    
 
-    # const1 = {'type':'ineq','fun': lambda x: np.linalg.norm(np.asarray(x[0],x[1],x[2]))-1.}
-    # const2 = {'type':'ineq','fun': lambda x: -np.linalg.norm(np.asarray(x[0],x[1],x[2]))+1.}
-    # out = minimize(erf,w0,args=(scMDLpts,),options={'gtol': 1e-3, 'disp': True},constraints=[const1,const2])#constraints=[{'type':'eq','fun':linear_constraint}])
     from scipy.optimize import NonlinearConstraint
     def myConstraint(x):
         out = np.linalg.norm(np.asarray([x[0],x[1],x[2]]))-1.
         print "%f, %f, %f, out:%f" %(x[0],x[1],x[2],out)
-        return out#np.asarray([out,out,out,out,out,out]) 
+        return out
     lb = 0.
     ub = 0.
     NLCon1 = NonlinearConstraint(myConstraint,lb,ub)
@@ -277,23 +311,38 @@ if __name__ == '__main__':
     con7 = {'type':'ineq','fun': lambda x: -x[2]+1}
     const1 = {'type':'ineq','fun': lambda x: np.linalg.norm(np.asarray(x[0],x[1],x[2]))-1.}
     const2 = {'type':'ineq','fun': lambda x: -np.linalg.norm(np.asarray(x[0],x[1],x[2]))+1.}#constraints=(const1,const2)
+
+    out = minimize(erf,w0,args=(scMDLpts,),options={'tol': 1e-3, 'disp': True},constraints=(con1,con2,con3,con4,con5,con6,con7))
+
+    print out
+    #w0 = [np.sqrt(2.)/2.,0.,np.sqrt(2.)/2.,scMDLpts.meanX,scMDLpts.meanY,scMDLpts.meanZ]
+    #pos0 = [meanX,meanY,meanZ]
+    #WORKS#out = fmin(erf,w0,args=(scMDLpts,),xtol=1e-3,ftol=1e-3,full_output=True)
+    # from scipy.optimize import LinearConstraint
+    # linear_constraint = LinearConstraint(\
+    #     [[1.,1.,1.,0.,0.,0.],\
+    #     [1.,1.,1.,0.,0.,0.],\
+    #     [1.,1.,1.,0.,0.,0.],\
+    #     [0.,0.,0.,1.,0.,0.],\
+    #     [0.,0.,0.,0.,1.,0.],\
+    #     [0.,0.,0.,0.,0.,1.]],\
+    #     [1., 1., 1.,-np.inf, -np.inf, -np.inf],\
+    #     [1., 1., 1., np.inf, np.inf, np.inf])
+    # const1 = {'type':'ineq','fun': lambda x: np.linalg.norm(np.asarray(x[0],x[1],x[2]))-1.}
+    # const2 = {'type':'ineq','fun': lambda x: -np.linalg.norm(np.asarray(x[0],x[1],x[2]))+1.}
+    # out = minimize(erf,w0,args=(scMDLpts,),options={'gtol': 1e-3, 'disp': True},constraints=[const1,const2])#constraints=[{'type':'eq','fun':linear_constraint}])
     #A = np.asarray([[1,0,0,0,0,0],[0,1,0,0,0,0],[0,0,1,0,0,0]])
     #lb = 
     #LinearConstraint()
     #const1 = {{'type':'eq',}
-    out = minimize(erf,w0,args=(scMDLpts,),options={'tol': 1e-3, 'disp': True},constraints=(con1,con2,con3,con4,con5,con6,con7))
     #constraints=[{'type':'eq','fun':linear_constraint}])
-
-
 
     # from scipy.optimize import Bounds
     # bounds = Bounds([0, -0.5], [1.0, 2.0])
-
-    print out
     #################################################
 
 
-    #### Plot
+    #### Plot Central Axis Fit Line #################
     bhat = np.asarray([out['x'][0],out['x'][1],out['x'][2]])
     #scMDLpts.maxRange = np.max([scMDLpts.rangeX,scMDLpts.rangeY,scMDLpts.rangeZ])
     pos0 = np.asarray([out['x'][3],out['x'][4],out['x'][5]])
@@ -303,4 +352,5 @@ if __name__ == '__main__':
     ax.set_ylabel('y')
     ax.set_zlabel('z')
     show(block=False)
+    ##################################################
 
