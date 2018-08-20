@@ -217,13 +217,9 @@ if __name__ == '__main__':
     #### Plot Raw Model #########################
     fig1 = plt.figure()
     ax1 = fig1.gca(projection='3d')
-    Xtmp = list()
-    Ytmp = list()
-    Ztmp = list()
-    for i in scMDLpts.allVertices:
-        Xtmp.append(i[0])
-        Ytmp.append(i[1])
-        Ztmp.append(i[2])
+    Xtmp = np.asarray(scMDLpts.allVertices)[:,0]
+    Ytmp = np.asarray(scMDLpts.allVertices)[:,1]
+    Ztmp = np.asarray(scMDLpts.allVertices)[:,2]
     ax1.scatter(Xtmp,Ytmp,Ztmp, c='k',marker='o',s=1)
     plt.show(block=False)
     #############################################
@@ -354,3 +350,4 @@ if __name__ == '__main__':
     show(block=False)
     ##################################################
 
+    #Now %run runFitCirclesToPoints.py
