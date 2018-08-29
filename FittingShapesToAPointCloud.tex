@@ -1,0 +1,75 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage{amsmath}
+
+\begin{document}
+
+\title{Fitting Shapes To A Point Cloud}
+\author{Dean R Keithly}
+
+\maketitle
+
+\begin{abstract}
+The abstract text goes here.
+\end{abstract}
+
+\section{Introduction}
+
+
+
+\section{Fitting 2-D Circle to X,Y Points}
+Our goal is to approximate the center and radius of a set of points which lie on a circle.
+We are given an arbitrary set of points in the 2D plane which are defined in the orthogonal X and Y coordinate plane.
+
+We find the bisection point between any two adjacent points on the circle using
+\begin{align*}
+x_{bi} = \frac{x_i+x_{i+1}}{2},\\
+y_{bi} = \frac{y_i+y_{i+1}}{2}.
+\end{align*}
+
+We can calculate their slope by
+\begin{align*}
+dx_i = x_{i+1} - x_i,\\
+dy_i = y_{i+1} - y_i,\\
+m_i = -\frac{dx_i}{dy_i}.
+\end{align*}
+We now have a point half-way between two points and the slope of a line perpendicular to the point to point connecting line so we can calculate the y-axis intercept
+\begin{align*}
+b_i = y_{bi} - m_i*x_{bi}.
+\end{align*}
+
+This line should go through the circle center but we do not know exactly where the center point is.
+We will therefore repeat this process for all points.
+We can trivially calculate the X point of intercept between any two of these lines using 
+\begin{align*}
+x_{int}(i,j) = \frac{b_i-b_j}{m_j-m_i}\\
+\end{align*}
+and then calculate the $y_{int}$
+\begin{align*}
+y_{int}(i,j) = x_{int}(i,j)*m_i + b_i.
+\end{align*}
+
+
+
+
+
+\begin{equation}
+    \label{simple_equation}
+    \alpha = \sqrt{ \beta }
+\end{equation}
+
+\subsection{Subsection Heading Here}
+Write your subsection text here.
+
+%\begin{figure}
+%    \centering
+%    \includegraphics[width=3.0in]{myfigure}
+%    \caption{Simulation Results}
+%    \label{simulationfigure}
+%\end{figure}
+
+\section{Conclusion}
+Write your conclusion here.
+
+\end{document}

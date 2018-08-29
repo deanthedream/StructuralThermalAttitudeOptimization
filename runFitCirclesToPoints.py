@@ -6,6 +6,7 @@ from sklearn.cluster import SpectralClustering
 from sklearn.mixture import GaussianMixture
 from sklearn import datasets
 import heapq
+import math
 
 close('all')
 #### Plot Filtered Model ###################
@@ -39,9 +40,9 @@ except NameError:
     for i in ptInds:#Instantiate struct of closest points for each ind
         cPS[i] = [i]
 
-    k=6 #number of points to find
+    k=6 #number of points to find#10 is horrible, 7 is ok
     for i in ptInds:
-        if len(cPS[i]) >= k:#Only looking for 6 closest points.... might want to rethink this Maybe calculate how many based on filtering distance and the minimum spatial distance between points on the unit sphere
+        if len(cPS[i]) >= k:#Only looking for k closest points.... might want to rethink this Maybe calculate how many based on filtering distance and the minimum spatial distance between points on the unit sphere
             continue
         tmp = map(lambda x: np.linalg.norm(x - scMDLpts.pts[i]), scMDLpts.pts)#Calculate distance between points and all other points
         #numPts = k - len(cPS[i]) + 1#num of points to find
@@ -57,12 +58,12 @@ except NameError:
             numPts = k - len(cPS[i]) + 1#num of points to find
             cPS[i] += ptsToAdd[1:numPts].tolist()#data format might be messy
 
-        numPts = k - len(cPS[i]) + 1#num of points to find
-        for indG in ptsToAdd[1:numPts]:#Add current point to other points
-            if cPS[indG] == [indG]:#If cPS has only 1 item and that item is itself
-                cPS[indG] = [i]
-            else:
-                cPS[indG].append(i)
+        # numPts = k - len(cPS[i]) + 1#num of points to find
+        # for indG in ptsToAdd[1:numPts]:#Add current point to other points
+        #     if cPS[indG] == [indG]:#If cPS has only 1 item and that item is itself
+        #         cPS[indG] = [i]
+        #     else:
+        #         cPS[indG].append(i)
     print 'Done Generating cPS'
 #################################################################
 
@@ -70,7 +71,7 @@ except NameError:
 try:
     cPSvectors[0]
     print 'Using previously defined cPSvectors'
-except NameError:
+except:
     cPSvectors = {}#Closest Points Struct
     for i in ptInds:#Instantiate struct of closest points for each ind
         cPSvectors[i] = [i]
@@ -152,6 +153,8 @@ for i in ptInds:#Iterate over all Points i
                 continue#Technically value will be none
             else:#Explore outwards 1
                 currDPval = cPSdp[iInd][j][k]#save current dp value
+                if math.isnan(currDPval):
+                    continue
                 currDPind = cPSindMat[iInd][j][k]#will have left vector and right vector
                 minErrorLR = None
                 minErrorjj = None
@@ -168,7 +171,16 @@ for i in ptInds:#Iterate over all Points i
                             if jj == kk:#Don't want to include identical dot products
                                 continue#Technically value will be none
                             else:#evaluate
-                                tmperr = np.abs(cPSdp[lrInd][jj][kk] - currDPval)
+                                # ttInd = cPS[iInd].index(lrInd)#getting ind of for finding vector
+                                # ttVect = cPSvectors[iInd][ttInd]
+                                # cPS[lrInd]
+                                if np.min([np.abs(cPSdp[lrInd][jj][kk]),np.abs(currDPval)]) == 0.:
+                                    tmperr = np.abs(cPSdp[lrInd][jj][kk] - currDPval)/np.min([np.abs(cPSdp[lrInd][jj][kk]),np.abs(currDPval)])#difference in dp
+                                elif np.min([np.abs(cPSdp[lrInd][jj][kk]),np.abs(currDPval)]) == None:
+                                    tmperr = 100.
+                                else:
+                                    tmperr = np.abs(cPSdp[lrInd][jj][kk] - currDPval)#difference in dp
+                                # print saltyburrito
                                 if tmperr < err_lrInd:#Update because we found the most in common angle
                                     minErrorjj_lrInd = jj
                                     minErrorkk_lrInd = kk
@@ -178,12 +190,15 @@ for i in ptInds:#Iterate over all Points i
                         minErrorjj = minErrorjj_lrInd
                         minErrorkk = minErrorkk_lrInd
                         err = err_lrInd
+                # if minErrorLR == None:
+                #     print saltyburrito
                 if not minErrorLR == None:
                     tmpList = [minErrorLR, minErrorjj, minErrorkk, err, cPSdp[minErrorLR][minErrorjj][minErrorkk]]
                     if cPSconn[iInd] == [[iInd]]:
                         cPSconn[iInd] = [tmpList]
                     else:
                         cPSconn[iInd].append(tmpList)
+    print(str(float(i)/float(len(ptInds))))
 print 'Done finding Most Similar Angles between two Points'
                 
 #### Distill data down
@@ -191,6 +206,7 @@ for i in ptInds:#Iterate over all Points i
     iInd = i#ind of point1
     minErrorInd = np.argmin([err[3] for err in cPSconn[iInd]])
     cPSconn2[iInd] = cPSconn[iInd][minErrorInd]
+
 
 tmpInds1 = ptInds.tolist()
 connList = list()#contains a list of connections between nodes
@@ -210,6 +226,8 @@ while len(tmpInds1) > 1:#Create another strain
 print 'Done Creating connection List'
 
 #### Plot on Figure
+rotColor = ['cyan','red','blue','green','orange','purple','yellow']
+cInd = 0
 for item in connList:
     if len(item)>1:
         ind0 = np.arange(len(item)-1)
@@ -217,12 +235,19 @@ for item in connList:
         for i in np.arange(len(item)-1):
             ax.plot([scMDLpts.X[item[ind0[i]]],scMDLpts.X[item[ind1[i]]]],\
                 [scMDLpts.Y[item[ind0[i]]],scMDLpts.Y[item[ind1[i]]]],
-                [scMDLpts.Z[item[ind0[i]]],scMDLpts.Z[item[ind1[i]]]])
+                [scMDLpts.Z[item[ind0[i]]],scMDLpts.Z[item[ind1[i]]]],color=rotColor[cInd])
+    cInd = (cInd + 1)%len(rotColor)
 
 show(block=False)
 print 'Done Plotting'
 
 
+#### Pull out Max length connList #################
+tmpMaxInd = np.argmax([len(sl) for sl in connList])
+connInds = connList[tmpMaxInd]
+ax.scatter(np.asarray(scMDLpts.X)[connInds],np.asarray(scMDLpts.Y)[connInds],np.asarray(scMDLpts.Z)[connInds], c='k', marker='o', s=50)
+show(block=False)
+###################################################
 
     #In work for same direction but must propagate twice
     # for j in np.arange(len(cPS[iInd])):#Iterate over all points j

@@ -128,8 +128,14 @@ class spacecraftModelPoints(object):
             print "len(pInds):%d, len(PVInds):%d" %(len(pInds),len(PVInds))
         #Setup All Points
         self.pts = list()
+        self.pts.append(self.allVertices[PVInds[0]])
+        self.PVInds = list()
+        #PVInds[0]
         for ptInd in PVInds:
+            if np.any(np.equal(self.allVertices[ptInd],self.pts).all(1)):#Check to see if points are the same point
+                continue#SKIP IF point already exists!!!
             self.pts.append(self.allVertices[ptInd])
+            self.PVInds.append(ptInd)
         #################################################
 
         self.extractAllXYZ(self.pts)#Re-extract All XYZ
